@@ -124,13 +124,14 @@ $(document).ready(function () {
 
 
 <div id="----" class="section level2">
-<h2>맥주 추천 알고리즘 설명과 코드</h2>
+<h2>맥주 추천 엔진 설명과 코드</h2>
 <p>알고리즘은 몇 단계 과정을 걸쳐 발전했습니다.</p>
 <ol style="list-style-type: decimal">
 <li>유클리드 거리를 사용한 단순 알고리즘</li>
 <li>코사인 유사도, 상관계수를 추가하여 추천기준 다양화</li>
 <li>Keras 패키지를 활용한 사용자 점수 딥러닝 모형 예측</li>
 <li>3가지 추천 기준을 모두 활용한 앙상블 모델</li>
+<li>추천엔진 성능 테스트</li>
 </ol>
 <pre class="r"><code>suppressPackageStartupMessages({
     library(distances)
@@ -139,7 +140,7 @@ $(document).ready(function () {
     library(RANN)}
 )
 sessionInfo()</code></pre>
-<pre><code>## R version 3.4.1 (2017-06-30)
+<pre><code>## R version 3.4.2 (2017-09-28)
 ## Platform: x86_64-w64-mingw32/x64 (64-bit)
 ## Running under: Windows 10 x64 (build 15063)
 ## 
@@ -154,14 +155,14 @@ sessionInfo()</code></pre>
 ## [1] stats     graphics  grDevices utils     datasets  methods   base     
 ## 
 ## other attached packages:
-## [1] RANN_2.5.1        keras_2.0.6       data.table_1.10.4 distances_0.1.2  
+## [1] RANN_2.5.1        keras_2.0.8       data.table_1.10.4 distances_0.1.2  
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] Rcpp_0.12.12     digest_0.6.12    rprojroot_1.2    R6_2.2.2        
-##  [5] jsonlite_1.5     backports_1.1.0  magrittr_1.5     evaluate_0.10.1 
-##  [9] tfruns_0.9.1     stringi_1.1.5    reticulate_1.1   rmarkdown_1.6   
-## [13] tools_3.4.1      stringr_1.2.0    yaml_2.1.14      compiler_3.4.1  
-## [17] tensorflow_1.3.1 htmltools_0.3.6  knitr_1.16</code></pre>
+##  [1] Rcpp_0.12.13    digest_0.6.12   rprojroot_1.2   R6_2.2.2       
+##  [5] jsonlite_1.5    backports_1.1.1 magrittr_1.5    evaluate_0.10.1
+##  [9] tfruns_0.9.1    stringi_1.1.5   reticulate_1.2  rmarkdown_1.6  
+## [13] tools_3.4.2     stringr_1.2.0   yaml_2.1.14     compiler_3.4.2 
+## [17] tensorflow_1.4  htmltools_0.3.6 knitr_1.17</code></pre>
 <div id="-" class="section level3">
 <h3>데이터 전처리</h3>
 <pre class="r"><code>####### Data Read ########
@@ -169,14 +170,15 @@ beers &lt;- fread(&quot;beer_reviews.csv&quot;, stringsAsFactors = FALSE)
 
 score_col &lt;- c(&quot;review_overall&quot;, &quot;review_aroma&quot;, &quot;review_appearance&quot;, &quot;review_palate&quot;, &quot;review_taste&quot;)
 scale_beer &lt;- data.table(beers[,scale(.SD), .SDcols=score_col])  # scale function
-scale_beer &lt;- scale_beer[,beer_name:=beers$beer_name]            # add beer_name column
+scale_beer[,beer_name:=beers$beer_name]            # add beer_name column
 str(scale_beer)</code></pre>
 <pre><code>## 
-Read 29.0% of 1586614 rows
-Read 48.5% of 1586614 rows
-Read 67.4% of 1586614 rows
-Read 87.0% of 1586614 rows
-Read 1586614 rows and 13 (of 13) columns from 0.168 GB file in 00:00:06
+Read 25.2% of 1586614 rows
+Read 42.9% of 1586614 rows
+Read 59.9% of 1586614 rows
+Read 77.5% of 1586614 rows
+Read 95.2% of 1586614 rows
+Read 1586614 rows and 13 (of 13) columns from 0.168 GB file in 00:00:07
 ## Classes 'data.table' and 'data.frame':   1586614 obs. of  6 variables:
 ##  $ review_overall   : num  -3.213 -1.132 -1.132 -1.132 0.256 ...
 ##  $ review_aroma     : num  -2.49 -1.77 -1.77 -1.05 1.1 ...
@@ -186,37 +188,43 @@ Read 1586614 rows and 13 (of 13) columns from 0.168 GB file in 00:00:06
 ##  $ beer_name        : chr  &quot;Sausa Weizen&quot; &quot;Red Moon&quot; &quot;Black Horse Black Beer&quot; &quot;Sausa Pils&quot; ...
 ##  - attr(*, &quot;.internal.selfref&quot;)=&lt;externalptr&gt;</code></pre>
 <p>먼저 데이터를 읽어오고 분석에 필요한 점수와 맥주명만 남깁니다. 또한 각 평가 항목마다 편차가 있을 수 있으므로 이를 보정하기 위해 <code>scale</code>함수로 표준화합니다.</p>
-<p>추천 알고리즘은 2가지 방법으로 구성할 수 있습니다. 하나는 동일한 사람이 평가한 여러 맥주를 비교하는 방법, 다른 방법은 동일한 맥주에 매겨진 평가 데이터를 하나의 수치로 정리하여 전체 맥주 간의 비교를 하는 방법이 있습니다. 여기서는 후자의 방법 택했으며 각각 맥주 평가 항목의 평균이 맥주 간 차이를 비교하는 특성값이 됩니다.</p>
+<p>추천 엔진은 2가지 방법으로 구성할 수 있습니다. 하나는 동일한 사람이 평가한 여러 맥주를 비교하는 방법, 다른 방법은 동일한 맥주에 매겨진 평가 데이터를 하나의 수치로 정리하여 전체 맥주 간 차이를 비교하는 방법이 있습니다. 여기서는 후자의 방법 택했으며 각각 맥주 평가 항목의 평균값이 맥주 간 차이를 비교하는 특성값이 됩니다.</p>
 <hr />
 </div>
-<div id="-1----" class="section level3">
-<h3>추천모형 1 - 유클리드 거리</h3>
-<pre class="r"><code>####################### Logic 1 Euclide ############################
-euclide &lt;- function(user_input, n=5, analytic_data=scale_beer,filter=TRUE){
-    mean_beer &lt;- analytic_data[,lapply(.SD,mean),.SDcols=score_col, by=beer_name]
+<div id="--1----" class="section level3">
+<h3>추천 엔진 1 - 유클리드 거리</h3>
+<pre class="r"><code>####################### Logic 1 Euclid ############################
+euclid &lt;- function(user_input, n=5, analytic_data=scale_beer,filter=TRUE){
+   
+     mean_beer &lt;-         # calculate mean first to compare each beers.
+        analytic_data[,lapply(.SD,mean),.SDcols=score_col, by=beer_name]
+    
+    # If data size very large, filter=TRUE
     if(filter){
     # ANN clustering algorithm is very fast for high dimensional data
-    target &lt;- nn2(data=mean_beer[,-1],                              # filtering by cluster
+        if(nrow(mean_beer)&lt;=1000) nk=nrow(mean_beer) else nk=1000
+        target &lt;- nn2(data=mean_beer[,-1],                          # filtering by cluster
             query=mean_beer[beer_name %chin% user_input, ][,-1],    # ANN algorithm calculate
-            k=1000)                                                 # nearest 1000 beers
+            k=nk)                                                   # nearest 1000 beers
     
     target_idx &lt;- target$nn.idx[1,]                      # shrink data dimension
     mean_beer &lt;- mean_beer[target_idx,]                  # 56857 -&gt; 1000
     }
+    # calculate euclidean distance. 
     euc_dist=distance_columns(distances(mean_beer,id_variable=&quot;beer_name&quot;),1)
     result &lt;- data.table(beer_name=mean_beer$beer_name,
                          euc_dist=as.vector(euc_dist))
     result &lt;- result[-1,]
     return(result[order(euc_dist)][1:n])
 }</code></pre>
-<p>첫번째 코드는 유클리드 거리입니다. 각 맥주별로 여러 건의 평가가 있는데, 맥주상품끼리 비교를 위해서는 단일값이 필요하므로 평균을 구합니다. 특징은 ANN 군집 알고리즘으로 유사한 군집끼리 묶어준 군집 내에서 유클리드 거리를 계산합니다. 전체 데이터에 대해 유클리드 거리를 구하면 distance matrix 계산에 엄청난 컴퓨팅 파워가 필요하기 때문에 <code>(차원의 저주)</code> 불가피하게 비교 데이터를 한정할 필요있습니다.</p>
+<p>첫번째는 유클리드 거리입니다. 각 맥주마다 여러 건의 평가가 있는데, 맥주상품 간 비교를 위해서는 단일값이 필요하므로 평균을 구합니다. 코드의 특징은 ANN 군집 알고리즘으로 유사한 군집끼리 묶어주고 동일 군집 내에서 유클리드 거리를 계산합니다. 전체 데이터에 대해 유클리드 거리를 구하면 distance matrix 계산에 엄청난 컴퓨팅 파워가 필요하기 때문에 <code>(차원의 저주)</code> 불가피하게 비교 데이터를 한정할 필요가 있습니다.</p>
 <hr />
 </div>
 <div id="--23-----" class="section level3">
-<h3>추천 모형 2,3 - 코사인 거리, 상관계수</h3>
+<h3>추천 엔진 2,3 - 코사인 거리, 상관계수</h3>
 <pre class="r"><code>######################### Logic 2 cosine ##############################
 cosine &lt;- function(user_input, n = 5, analytic_data=scale_beer, filter=TRUE) {
-    cos_similiar &lt;- function(ma, mb) {
+    cos_similarity &lt;- function(ma, mb) {     # cosine similiarity formula
         ma &lt;- as.matrix(ma)
         mb &lt;- as.matrix(mb)
         mat = tcrossprod(ma, mb)
@@ -225,50 +233,59 @@ cosine &lt;- function(user_input, n = 5, analytic_data=scale_beer, filter=TRUE) 
         mat / outer(t1, t2)
     }
     
-    mean_beer &lt;-
+    mean_beer &lt;-              # calculate mean first to compare each beers.
         analytic_data[, lapply(.SD, mean), .SDcols = score_col, by = beer_name]
+    
+    # If data size very large, filter=TRUE
     if(filter){
-   target &lt;- nn2(data=mean_beer[,-1],                              # filtering by cluster
-            query=mean_beer[beer_name %chin% user_input, ][,-1],    # ANN algorithm calculate
-            k=1000)                                                 # nearest 1000 beers
+        if(nrow(mean_beer)&lt;=1000) nk=nrow(mean_beer) else nk=1000
+       target &lt;- nn2(data=mean_beer[,-1],                         # filtering by cluster
+            query=mean_beer[beer_name %chin% user_input, ][,-1],  # ANN algorithm calculate
+            k=nk)                                                 # nearest 1000 beers
     
     target_idx &lt;- target$nn.idx[1,]                      # shrink data dimension
     mean_beer &lt;- mean_beer[target_idx,]                  # 56857 -&gt; 1000
     }
+    
     n1 &lt;- nrow(mean_beer)
     result &lt;- data.table(beer_name = mean_beer$beer_name,
                          cos_sim = rep(0, time = n1))
     
     # cosine similarity between user_input and beers within ANN cluster.
     for (i in 2:n1) {              # fast loop computation 'set'
-        set(result, i, 2L, cos_similiar(mean_beer[1, 2:6], mean_beer[i, 2:6]))
+        set(result, i, 2L, cos_similarity(mean_beer[1, 2:6], mean_beer[i, 2:6]))
     }
     
     return(result[order(-cos_sim)][1:n])
+    # bigger number, better similarity
 }
 
 
 ######################## Logic 3 corr ######################################
 correlation &lt;- function(user_input, n = 5, analytic_data=scale_beer, filter=TRUE) {
     
-    mean_beer &lt;-
+    mean_beer &lt;-               # calculate mean first to compare each beers.
         analytic_data[, lapply(.SD, mean), .SDcols = score_col, by = beer_name]
     
+    # If data size very large, filter=TRUE
     if(filter){
-    target &lt;- nn2(data=mean_beer[,-1],                              # filtering by cluster
+        if(nrow(mean_beer)&lt;=1000) nk=nrow(mean_beer) else nk=1000
+        target &lt;- nn2(data=mean_beer[,-1],                          # filtering by cluster
             query=mean_beer[beer_name %chin% user_input, ][,-1],    # ANN algorithm calculate
-            k=1000)                                                 # nearest 1000 beers
+            k=nk)                                                   # nearest 1000 beers
     
     target_idx &lt;- target$nn.idx[1,]                      # shrink data dimension
     mean_beer &lt;- mean_beer[target_idx,]                  # 56857 -&gt; 1000
     }
     n1 &lt;- nrow(mean_beer)
-    result &lt;- data.table(beer_name = mean_beer$beer_name,
+    cor_result &lt;- data.table(beer_name = mean_beer$beer_name,
                          corr = rep(0, time = n1))
     for (i in 2:n1) { 
-        set(result, i, 2L, cor(unlist(mean_beer[1, 2:6]), unlist(mean_beer[i, 2:6])))
+        set(cor_result, i, 2L, 
+            cor(unlist(mean_beer[1, score_col, with=FALSE]), 
+                unlist(mean_beer[i, score_col, with=FALSE])))
     }
-    return(result[order(-corr)][1:n])
+    return(cor_result[order(-corr)][1:n])
 }</code></pre>
 <p>앞선 유클리드 거리와 거의 유사한 알고리즘이며 계산 방법이 코사인 유사도, 상관계수로 바뀐 점이 유일한 차이입니다.</p>
 <hr />
@@ -283,23 +300,19 @@ input &lt;- as.matrix(beers[idx,c(5:6,9:10)])
 model &lt;- keras_model_sequential()
 model %&gt;% 
     layer_dense(units = 64, activation = 'relu', input_shape=c(4)) %&gt;%
-    # layer_dropout(rate = 0.3) %&gt;% 
     layer_dense(units = 1)
-# layer_dropout(.75) %&gt;% 
-# layer_dense(units=1)
-# summary(model)
+summary(model)
 
 model %&gt;% compile(
     loss = 'mse',
     optimizer = 'adam'
 )
-deep_learning_time &lt;- system.time(
-    model %&gt;% fit(
-        input, output, 
-        epochs = 5, 
-        batch_size = 24
-    )
+model %&gt;% fit(
+    input, output, 
+    epochs = 5, 
+    batch_size = 24
 )
+
 
 deep_learning &lt;- function(recommeded_item){
     # predict for 
@@ -307,51 +320,126 @@ deep_learning &lt;- function(recommeded_item){
     expected_score &lt;- predict_on_batch(model,as.matrix(pred_input[,-1]))[1,1]
     return(expected_score)
 }</code></pre>
-<p>딥러닝 모형을 트레이닝하고 예측하는 코드입니다. 맥주 평가 데이터는 <code>&quot;review_overall&quot;, &quot;review_aroma&quot;, &quot;review_appearance&quot;, &quot;review_palate&quot;, &quot;review_taste&quot;</code>로 구성됐는데 이중 review_overall은 반응 변수, 나머지 값은 독립 변수로 설정했습니다. 컴퓨팅 파워를 감안하여 2개의 레이어로 구성했으며 딥러닝 모형 파라미터에 대한 부분은 자세히 알지 못합니다.</p>
+<pre><code>## ___________________________________________________________________________
+## Layer (type)                     Output Shape                  Param #     
+## ===========================================================================
+## dense_1 (Dense)                  (None, 64)                    320         
+## ___________________________________________________________________________
+## dense_2 (Dense)                  (None, 1)                     65          
+## ===========================================================================
+## Total params: 385
+## Trainable params: 385
+## Non-trainable params: 0
+## ___________________________________________________________________________</code></pre>
+<p>딥러닝 모형을 트레이닝하고 예측하는 코드입니다. 맥주 평가 데이터는 <code>&quot;review_overall&quot;, &quot;review_aroma&quot;, &quot;review_appearance&quot;, &quot;review_palate&quot;, &quot;review_taste&quot;</code>로 구성됐는데 이중 review_overall은 반응 변수, 나머지 값은 독립 변수로 설정했습니다. 컴퓨팅 파워를 감안하여 2개의 레이어로 구성했으며 딥러닝 모형 파라미터 부분은 자세히 알지 못합니다.</p>
 <hr />
 </div>
 <div id="--4----" class="section level3">
 <h3>추천 모형 4 - 앙상블 모델</h3>
 <pre class="r"><code>#################### Ensemble #####################
-kernel_ensemble &lt;- function(user_input, iter){
+kernel_ensemble &lt;- function(user_input, ensemble_data, iter){
 
-    result &lt;- vector()
-        
-    resample &lt;- copy(scale_beer[1==0,])
+    ens_result &lt;- vector()
+    nr &lt;- nrow(ensemble_data)
+    resample &lt;- copy(ensemble_data[1==0,])
+    
     for (i in 1:iter) {
-        while (nrow(resample[beer_name == user_input, ]) == 0){
-            idx &lt;- sample.int(nrow(beers), 10000)
-            resample &lt;- scale_beer[idx, ]
+        while (nrow(resample[beer_name %chin% user_input, ]) == 0){
+            idx &lt;- sample.int(nr, floor(nr*.7))
+            resample &lt;- ensemble_data[idx, ]
         }
-    result[3*i-2] &lt;- euclide(user_input,n=1,analytic_data=resample,filter=FALSE)$beer_name
-    result[3*i-1] &lt;- cosine(user_input,n=1,analytic_data=resample,filter=FALSE)$beer_name
-    result[3*i] &lt;- correlation(user_input,n=1,analytic_data=resample,filter=FALSE)$beer_name
-    resample &lt;- copy(scale_beer[1==0,])
+        ens_result[3*i-2] &lt;- euclid(user_input,n=1,resample,filter=TRUE)$beer_name
+        ens_result[3*i-1] &lt;- cosine(user_input,n=1,resample,filter=TRUE)$beer_name
+        ens_result[3*i] &lt;- correlation(user_input,n=1,resample,filter=TRUE)$beer_name
+        resample &lt;- copy(ensemble_data[1==0,])
     }
     
-    return(result)
+    return(ens_result)
 }
 
-result_ensemble &lt;- function(user_input, iter=7){
-    ensem_result &lt;- kernel_ensemble(user_input, iter)
-    print(data.frame(
+ensemble &lt;- function(user_input, ensemble_data=scale_beer, iter=10){
+    ensem_result &lt;- kernel_ensemble(user_input, ensemble_data, iter)
+    return(data.frame(
         Our_Recommendation=
             names(table(ensem_result)[which.max(table(ensem_result))]),
         Predicted_Score=
-            deep_learning(ensem_result))
-        )
+            deep_learning(ensem_result),
+        stringsAsFactors=FALSE)
+    )
 }
     
 
 ########## Util #############
 beer_search &lt;- function(user_input) return(beers[,.N,by=beer_name][beer_name %like% user_input])</code></pre>
-<p>최종 모형인 앙상블 모형입니다. 전체 데이터에서 샘플링으로 <code>1000</code>행 서브셋 데이터를 N번 구축하고 각각 유클리드거리, 코사인 유사도, 상관계수를 구하여 추천 점수가 가장 높은 항목만 <code>result</code>에 저장합니다. 최다 투표를 받은 맥주를 최종 추천 상품으로 결정합니다. output으로 딥러닝 예측 점수도 함께 출력됩니다.</p>
-<div id="recommendation" class="section level4">
-<h4>Recommendation</h4>
-<pre class="r"><code>result_ensemble(&quot;Guinness Draught&quot;)</code></pre>
-<pre><code>##            Our_Recommendation Predicted_Score
-## 1 Hardcore IPA (2nd Ed. 9.2%)        4.354417</code></pre>
+<p>최종 모형인 앙상블 모형입니다. 전체 데이터에서 원래 데이터의 <code>70%</code>크기의 샘플 데이터를 추출하고 각각 유클리드거리, 코사인 유사도, 상관계수를 구하여 가장 유사한 맥주를 <code>result</code>에 저장합니다. 이러한 작업을 <code>iter</code>번(기본값 10) 반복하여 최다 투표를 받은 맥주를 최종 추천 상품으로 결정합니다. output으로 딥러닝 예측 점수도 함께 출력됩니다.</p>
+<div id="recommendation-output" class="section level4">
+<h4>Recommendation Output</h4>
+<pre class="r"><code>answer &lt;- ensemble(user_input=&quot;Guinness Draught&quot;, iter=3)
+answer</code></pre>
+<pre><code>##   Our_Recommendation Predicted_Score
+## 1     Adnams Gunhill        3.584768</code></pre>
+<hr />
 </div>
+</div>
+<div id="result-test" class="section level3">
+<h3>Result Test</h3>
+<p>각 알고리즘별 성능을 측정해보기 위해 여러 방법을 쓸 수 있겠지만, 여기서는 간소화된 방법으로 <code>Guinness Draught</code> 평가 점수가 있는 사람(2210명)이 작성한 리뷰를 평가 기준으로 삼겠습니다. 30건 이상의 리뷰가 있는 맥주 4370종에 대해 계산한 평균 맥주 평점을 계산하여 비교했습니다. <code>Guinness Draught</code>의 평점과 가장 가까운 경우 추천 성능이 좋다고 할 수 있겠습니다.</p>
+<pre class="r"><code>review_filter_reviewer &lt;- beers[beer_name %in% &quot;Guinness Draught&quot;,
+                         list(review_profilename, review_overall)]
+review_filter_beer &lt;- beers[review_profilename %in% review_filter_reviewer$review_profilename,
+                                .(mean=mean(review_overall),.N), 
+                                by = beer_name][order(-mean)][N&gt;29]
+review_filter_data &lt;- beers[beer_name %in% review_filter_beer$beer_name &amp;
+                            review_profilename %in% review_filter_reviewer$review_profilename,
+                            .SD, .SDcols=c(score_col,&quot;beer_name&quot;)]</code></pre>
+<p><code>Sierra Nevada Pale Ale</code>와 <code>Stone IPA (India Pale Ale)</code>가 4.5점 또는 5.0점을 가장 많이 받은 것으로 확인됐습니다. 그렇다면 사용자가 <code>Sierra Nevada Pale Ale</code>을 입력했을 때 어떤 맥주를 추천하는지 알고리즘별로 확인하겠습니다.</p>
+<pre class="r"><code>set.seed(1001)      # for reproducible result
+test &lt;- function(user_input,analytic_data){
+    ens &lt;- ensemble(user_input,analytic_data)$Our_Recommendation
+    euc &lt;- euclid(user_input,n=1,analytic_data,filter=TRUE)$beer_name
+    cos &lt;- cosine(user_input,n=1,analytic_data,filter=TRUE)$beer_name
+    cor &lt;- correlation(user_input,n=1,analytic_data,filter=TRUE)$beer_name
+    return(
+        rbind(ens,euc,cos,cor)
+    )
+}
+result &lt;- test(&quot;Guinness Draught&quot;,review_filter_data)
+result
+review_filter_beer[beer_name %chin% c(result[,1],&quot;Guinness Draught&quot;)]</code></pre>
+<pre><code>##     [,1]                        
+## ens &quot;Tetley's English Ale&quot;      
+## euc &quot;Tetley's English Ale&quot;      
+## cos &quot;Belhaven Best&quot;             
+## cor &quot;Wachusett Country Pale Ale&quot;
+##                     beer_name     mean    N
+## 1:       Tetley's English Ale 3.747727  220
+## 2:           Guinness Draught 3.685068 2210
+## 3: Wachusett Country Pale Ale 3.559524   42
+## 4:              Belhaven Best 3.546512   43</code></pre>
+<p>결과를 보면 <code>ensemble = euclid &gt; correlation &gt; cosine similiarity</code> 순으로 성능이 좋은 것을 확인했습니다. 다음으로 <code>Corona Extra</code>을 대입해보겠습니다.</p>
+<pre class="r"><code>review_filter_reviewer &lt;- beers[beer_name %in% &quot;Corona Extra&quot;,
+                         list(review_profilename, review_overall)]
+review_filter_beer &lt;- beers[review_profilename %in% review_filter_reviewer$review_profilename,
+                                .(mean=mean(review_overall),.N), 
+                                by = beer_name][order(-mean)][N&gt;29]
+review_filter_data &lt;- beers[beer_name %in% review_filter_beer$beer_name &amp;
+                            review_profilename %in% review_filter_reviewer$review_profilename,
+                            .SD, .SDcols=c(score_col,&quot;beer_name&quot;)]
+result &lt;- test(&quot;Corona Extra&quot;,review_filter_data)
+result
+review_filter_beer[beer_name %chin% c(result[,1],&quot;Corona Extra&quot;)]</code></pre>
+<pre><code>##     [,1]         
+## ens &quot;Miller Lite&quot;
+## euc &quot;Miller Lite&quot;
+## cos &quot;Budweiser&quot;  
+## cor &quot;Tecate&quot;     
+##       beer_name     mean    N
+## 1:       Tecate 2.933735  249
+## 2:    Budweiser 2.744425  583
+## 3:  Miller Lite 2.643198  419
+## 4: Corona Extra 2.608120 1096</code></pre>
+<p><code>Corona Extra</code>의 경우 <code>ensemble = euclid &gt; cosine similiarity &gt; correlation</code> 순으로 성능이 좋은 것으로 나왔습니다.</p>
+<p>앞선 테스트 결과를 바탕으로 최종 추천엔진은 앙상블 알고리즘을 사용하는 것이 최적의 선택이라고 결론을 내리겠습니다.</p>
 </div>
 </div>
 

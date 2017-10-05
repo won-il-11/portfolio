@@ -276,7 +276,7 @@ beer_search <- function(user_input) return(beers[,.N,by=beer_name][beer_name %li
 
 최종 모형인 앙상블 모형입니다. 전체 데이터에서 원래 데이터의 `70%`크기의 샘플 데이터를 추출하고 각각 유클리드거리, 코사인 유사도, 상관계수를 구하여 가장 유사한 맥주를 `result`에 저장합니다. 이러한 작업을 `iter`번(기본값 10) 반복하여 최다 투표를 받은 맥주를 최종 추천 상품으로 결정합니다. output으로 딥러닝 예측 점수도 함께 출력됩니다.
 
-#### Recommendation
+#### Recommendation Output
 
 ``` r
 answer <- ensemble(user_input="Guinness Draught", iter=3)
@@ -303,10 +303,10 @@ review_filter_data <- beers[beer_name %in% review_filter_beer$beer_name &
                             .SD, .SDcols=c(score_col,"beer_name")]
 ```
 
-`Sierra Nevada Pale Ale`와 `Stone IPA (India Pale Ale)`가 4.5점 또는 5.0점을 가장 많이 받은 것으로 확인됐습니다. 그렇다면 사용자가 `Sierra Nevada Pale Ale`을 입력했을 때 어떤 맥주를 추천하는지 알고리즘별로 확인하겠습니다.
+빠른 연산을 위해 `filter=TRUE` 옵션을 주고 비교했습니다. ens는 앙상블, euc는 유클리드 거리, cos는 코사인 유사도, cor는 상관계수입니다.
 
 ``` r
-set.seed(1001)
+set.seed(1001)     # for reproducible result
 test <- function(user_input,analytic_data){
     ens <- ensemble(user_input,analytic_data)$Our_Recommendation
     euc <- euclid(user_input,n=1,analytic_data,filter=TRUE)$beer_name
@@ -332,4 +332,33 @@ review_filter_beer[beer_name %chin% c(result[,1],"Guinness Draught")]
     ## 3: Wachusett Country Pale Ale 3.559524   42
     ## 4:              Belhaven Best 3.546512   43
 
-결과를 보면 `correlation > cosine similiarity > ensemble > euclid` 순으로
+결과를 보면 `ensemble = euclid > correlation > cosine similiarity` 순으로 성능이 좋은 것을 확인했습니다. 다음으로 `Corona Extra`을 대입해보겠습니다.
+
+```r
+review_filter_reviewer <- beers[beer_name %in% "Corona Extra",
+                         list(review_profilename, review_overall)]
+review_filter_beer <- beers[review_profilename %in% review_filter_reviewer$review_profilename,
+                                .(mean=mean(review_overall),.N), 
+                                by = beer_name][order(-mean)][N>29]
+review_filter_data <- beers[beer_name %in% review_filter_beer$beer_name &
+                            review_profilename %in% review_filter_reviewer$review_profilename,
+                            .SD, .SDcols=c(score_col,"beer_name")]
+result <- test("Corona Extra",review_filter_data)
+result
+review_filter_beer[beer_name %chin% c(result[,1],"Corona Extra")]
+```
+
+    ##     [,1]                        
+    ## ens "Miller Lite"      
+    ## euc "Miller Lite"      
+    ## cos "Budweiser"             
+    ## cor "Tecate"
+    ##                     beer_name     mean    N
+    ## 1:                     Tecate 2.933735  249
+    ## 2:                  Budweiser 2.744425  583
+    ## 3:                Miller Lite 2.643198  419
+    ## 4:               Corona Extra 2.608120 1096
+
+  `Corona Extra`의 경우 `ensemble = euclid > cosine similiarity > correlation` 순으로 성능이 좋은 것으로 나왔습니다.
+  
+  앞선 테스트 결과를 바탕으로 최종 추천엔진은 앙상블 알고리즘을 사용하는 것이 최적의 선택이라고 결론을 내리겠습니다.
